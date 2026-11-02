@@ -1,9 +1,61 @@
 package protocol
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestEncodeResponse(t *testing.T) {
+	found, missing := true, false
+	tests := []struct {
+		name     string
+		response Response
+		want     string
+	}{
+		{name: "set success", response: Response{OK: true}, want: `{"ok":true}`},
+		{name: "found value", response: Response{OK: true, Found: &found, Value: "Alice"}, want: `{"ok":true,"found":true,"value":"Alice"}`},
+		{name: "empty value", response: Response{OK: true, Found: &found}, want: `{"ok":true,"found":true}`},
+		{name: "missing key", response: Response{OK: true, Found: &missing}, want: `{"ok":true,"found":false}`},
+		{name: "escaped value", response: Response{OK: true, Found: &found, Value: "<\n"}, want: `{"ok":true,"found":true,"value":"\u003c\n"}`},
+		{name: "error", response: Response{Error: "unknown operation"}, want: `{"ok":false,"error":"unknown operation"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, err := EncodeResponse(tt.response)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(payload) != tt.want {
+				t.Errorf("encoded response = %s, want %s", payload, tt.want)
+			}
+		})
+	}
+}
+
+func TestEncodeResponseSizeLimit(t *testing.T) {
+	found := true
+	const overhead = len(`{"ok":true,"found":true,"value":""}`)
+	for _, extra := range []int{0, 1} {
+		t.Run(fmt.Sprintf("extra=%d", extra), func(t *testing.T) {
+			response := Response{
+				OK: true, Found: &found,
+				Value: strings.Repeat("a", maxFramesize-overhead+extra),
+			}
+			payload, err := EncodeResponse(response)
+			if extra == 1 {
+				if !errors.Is(err, ErrFrameTooLarge) || payload != nil {
+					t.Fatalf("oversized response: got %d bytes, %v; want nil, ErrFrameTooLarge", len(payload), err)
+				}
+				return
+			}
+			if err != nil || len(payload) != maxFramesize {
+				t.Fatalf("maximum response: got %d bytes, %v; want %d bytes, nil", len(payload), err, maxFramesize)
+			}
+		})
+	}
+}
 
 func TestDecodeRequest(t *testing.T) {
 	tests := []struct {

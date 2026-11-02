@@ -24,6 +24,18 @@ type Response struct {
 	Error string `json:"error,omitempty"`
 }
 
+//  encodes a response as JSON and checks that it fits in a frame.
+func EncodeResponse(response Response) ([]byte, error) {
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("encode response: %w", err)
+	}
+	if len(payload) > maxFramesize {
+		return nil, ErrFrameTooLarge
+	}
+	return payload, nil
+}
+
 // turn payload into a reuqest that can be trusted
 func DecodeRequest(payload []byte) (Request, error) {
 	var req Request // json gets decoded into it

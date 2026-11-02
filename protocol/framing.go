@@ -39,7 +39,7 @@ func WriteFrame(w io.Writer, payload []byte) error {
 	}
 
 	frame := make([]byte, 4+len(payload))
-	binary.BigEndian.PutUint32(frame[:4], uint32(len(payload)))
+	binary.BigEndian.PutUint32(frame[:4], uint32(len(payload))) // encoding the payload length into the first 4 bytes 
 	copy(frame[4:], payload)
 
 	_, err := w.Write(frame)
