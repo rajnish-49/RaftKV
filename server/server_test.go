@@ -148,3 +148,75 @@ func TestHandleConnContinuesAfterOversizedResponse(t *testing.T) {
 		})
 	}
 }
+
+func TestServeMultipleTCPClients(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(listener, storage.New())
+	done := make(chan error, 1)
+	go func() {
+		done <- s.Serve()
+	}()
+	t.Cleanup(func() {
+		listener.Close()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Serve after listener close: %v", err)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("Serve did not stop after listener close")
+		}
+	})
+
+	dial := func() net.Conn {
+		t.Helper()
+		conn, err := net.DialTimeout("tcp", listener.Addr().String(), 10*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.Close() })
+		if err := conn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		return conn
+	}
+
+	// An idle first client must not block the accept loop from serving another.
+	first := dial()
+	second := dial()
+	response := exchange(t, second, `{"op":"SET","key":"shared","value":"Alice"}`)
+	if !response.OK || response.Error != "" {
+		t.Fatalf("SET from second client failed: %#v", response)
+	}
+	response = exchange(t, first, `{"op":"GET","key":"shared"}`)
+	if !response.OK || response.Found == nil || !*response.Found || response.Value != "Alice" {
+		t.Fatalf("first client cannot read shared store: %#v", response)
+	}
+	response = exchange(t, first, `{"op":"DELETE","key":"shared"}`)
+	if !response.OK || response.Found == nil || !*response.Found {
+		t.Fatalf("DELETE from first client failed: %#v", response)
+	}
+	response = exchange(t, second, `{"op":"GET","key":"shared"}`)
+	if !response.OK || response.Found == nil || *response.Found || response.Value != "" {
+		t.Fatalf("second client did not observe deletion: %#v", response)
+	}
+}
+
+type failingListener struct {
+	err error
+}
+
+func (l failingListener) Accept() (net.Conn, error) { return nil, l.err }
+func (failingListener) Close() error                { return nil }
+func (failingListener) Addr() net.Addr              { return &net.TCPAddr{} }
+
+func TestServeAcceptError(t *testing.T) {
+	want := errors.New("accept failed")
+	s := New(failingListener{err: want}, storage.New())
+	if err := s.Serve(); !errors.Is(err, want) {
+		t.Fatalf("Serve error = %v, want %v", err, want)
+	}
+}
