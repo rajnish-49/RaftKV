@@ -11,6 +11,8 @@ const maxFramesize = 1 << 20
 
 var ErrFrameTooLarge = errors.New("frame exceeds maximum payload size")
 
+// ReadFrame reads a four-byte payload length followed by that many bytes.
+// TCP provides a byte stream without message boundaries.
 func ReadFrame(r io.Reader) ([]byte, error) {
 	var header [4]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
@@ -32,14 +34,13 @@ func ReadFrame(r io.Reader) ([]byte, error) {
 	return payload, nil
 }
 
-
 func WriteFrame(w io.Writer, payload []byte) error {
 	if len(payload) > maxFramesize {
 		return ErrFrameTooLarge
 	}
 
 	frame := make([]byte, 4+len(payload))
-	binary.BigEndian.PutUint32(frame[:4], uint32(len(payload))) // encoding the payload length into the first 4 bytes 
+	binary.BigEndian.PutUint32(frame[:4], uint32(len(payload))) // encoding the payload length into the first 4 bytes
 	copy(frame[4:], payload)
 
 	_, err := w.Write(frame)

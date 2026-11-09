@@ -16,7 +16,7 @@ func TestEncodedResponseFrameRoundTrip(t *testing.T) {
 		{OK: true, Found: &missing},
 		{Error: "value too large"},
 	}
-	var wire bytes.Buffer
+	var wire bytes.Buffer // Holds the framed bytes in memory.
 	for _, response := range responses {
 		payload, err := EncodeResponse(response)
 		if err != nil {
